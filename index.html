@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mapa Conceptual Interactivo</title>
+    <!-- Tipografía Montserrat -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --blue-dark: #0e4a7b;
+            --blue-mid: #1e6fb8;
+            --blue-light: #a9c8e6;
+            --blue-pale: #e3f2fd;
+            --text-main: #ffffff;
+            --text-sec: #334e68;
+            --shadow-soft: 0 10px 25px rgba(14, 74, 123, 0.15);
+            --shadow-hover: 0 15px 35px rgba(14, 74, 123, 0.25);
+            --transition-speed: 0.6s;
+            --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+            touch-action: none; /* Deshabilita gestos del navegador para controlar el pan/zoom */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        /* Lienzo principal */
+        #viewport {
+            width: 100vw;
+            height: 100vh;
+            cursor: grab;
+            overflow: hidden;
+            position: relative;
+            background-image: 
+                linear-gradient(rgba(30, 111, 184, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(30, 111, 184, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px; /* Efecto cuadrícula sutil tipo libreta */
+        }
+
+        #viewport:active {
+            cursor: grabbing;
+        }
+
+        /* Contenedor transformable */
+        #map-canvas {
+            width: 2000px;
+            height: 1500px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform-origin: center center;
+            /* Posición inicial centrada por JS */
+            will-change: transform;
+        }
+
+        /* Líneas de conexión (SVG) */
+        .connections-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .connector {
+            fill: none;
+            stroke: var(--blue-mid);
+            stroke-width: 3px;
+            stroke-linecap: round;
+            opacity: 0.6;
+        }
+
+        /* Nodos del mapa (Recuerdos) */
+        .node {
+            position: absolute;
+            background: linear-gradient(135deg, var(--blue-light) 0%, var(--blue-pale) 100%);
+            border-left: 6px solid var(--blue-mid);
+            border-radius: 12px;
+            padding: 25px 30px;
+            width: 320px;
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: flex-start;
+            box-shadow: var(--shadow-soft);
+            z-index: 2;
+            cursor: pointer;
+            transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s;
+        }
+
+        /* Estilos específicos por jerarquía */
+        .node.root {
+            background: linear-gradient(135deg, var(--blue-mid) 0%, var(--blue-dark) 100%);
+            border-left: 8px solid var(--blue-dark);
+            color: var(--text-main);
+            width: 360px;
+            height: 180px;
+        }
+
+        .node.level-2 {
+            border-left-color: var(--blue-dark);
+            background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+        }
+
+        .node:hover {
+            transform: translateY(-5px) scale(1.02);
+            box-shadow: var(--shadow-hover);
+        }
+
+        /* Tipografía */
+        h2 {
+            margin: 0;
+            font-size: 1.4rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--blue-dark);
+            pointer-events: none;
+        }
+
+        .root h2 {
+            color: white;
+            font-size: 2rem;
+        }
+
+        p.subtitle {
+            margin: 8px 0 0 0;
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: var(--text-sec);
+            pointer-events: none;
+        }
+
+        .root p.subtitle {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        /* Contenido oculto que se revela al hacer zoom/click */
+        .detail-content {
+            margin-top: 15px;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            color: var(--text-sec);
+            opacity: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: all 0.5s ease;
+            font-weight: 400;
+        }
+
+        .root .detail-content {
+            color: rgba(255, 255, 255, 0.85);
+        }
+
+        /* Estado Activo (Zoomed in) */
+        .node.active {
+            z-index: 10;
+            border-left-width: 10px;
+        }
+
+        .node.active .detail-content {
+            opacity: 1;
+            max-height: 200px;
+            margin-top: 15px;
+        }
+
+        /* Posicionamiento Manual (Simulando la imagen) 
+           El canvas es 2000x1500. Centro aprox: 1000, 750
+        */
+
+        /* Raíz */
+        #node-isomeros { top: 700px; left: 300px; }
+
+        /* Nivel 2 */
+        #node-estructurales { top: 500px; left: 850px; }
+        #node-esteroisomeros { top: 900px; left: 850px; }
+
+        /* Nivel 3 (Ramas de Esteroisómeros) */
+        #node-conformacionales { top: 700px; left: 1400px; }
+        #node-enantiomeros { top: 900px; left: 1400px; }
+        #node-diastereomeros { top: 1100px; left: 1400px; }
+
+        /* Accesibilidad - Focus Ring solo para teclado */
+        .node:focus-visible {
+            outline: 3px solid var(--blue-dark);
+            outline-offset: 4px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="viewport" role="application" aria-label="Mapa interactivo de Isómeros">
+        <div id="map-canvas">
+            
+            <!-- SVG Layer for connections -->
+            <svg class="connections-layer" xmlns="http://www.w3.org/2000/svg">
+                <!-- Root to Estructurales -->
+                <path d="M 660 790 C 750 790, 750 590, 850 590" class="connector" />
+                <!-- Root to Esteroisómeros -->
+                <path d="M 660 790 C 750 790, 750 990, 850 990" class="connector" />
+                
+                <!-- Esteroisómeros to Conformacionales -->
+                <path d="M 1170 990 C 1280 990, 1280 760, 1400 760" class="connector" />
+                <!-- Esteroisómeros to Enantiómeros -->
+                <path d="M 1170 990 C 1280 990, 1280 960, 1400 960" class="connector" />
+                <!-- Esteroisómeros to Diastereómeros -->
+                <path d="M 1170 990 C 1280 990, 1280 1160, 1400 1160" class="connector" />
+            </svg>
+
+            <!-- Nodos -->
+            
+            <!-- ROOT -->
+            <div id="node-isomeros" class="node root" tabindex="0" role="button" aria-expanded="false">
+                <h2>ISÓMEROS</h2>
+                <p class="subtitle">Compuestos con la misma fórmula molecular.</p>
+                <div class="detail-content">
+                    Tienen la misma fórmula química pero diferente estructura o disposición espacial de los átomos.
+                </div>
+            </div>
+
+            <!-- LEVEL 2 -->
+            <div id="node-estructurales" class="node level-2" tabindex="0" role="button">
+                <h2>ESTRUCTURALES</h2>
+                <p class="subtitle">(Cadena, posición, función)</p>
+                <div class="detail-content">
+                    Difieren en la forma en que los átomos están conectados entre sí en la estructura molecular.
+                </div>
+            </div>
+
+            <div id="node-esteroisomeros" class="node level-2" tabindex="0" role="button">
+                <h2>ESTEROISÓMEROS</h2>
+                <p class="subtitle">(Isomería Espacial)</p>
+                <div class="detail-content">
+                    Tienen la misma conectividad pero difieren en la orientación tridimensional de sus átomos en el espacio.
+                </div>
+            </div>
+
+            <!-- LEVEL 3 -->
+            <div id="node-conformacionales" class="node" tabindex="0" role="button">
+                <h2>ISÓMEROS CONFORMACIONALES</h2>
+                <div class="detail-content">
+                    Estereoisómeros que pueden interconvertirse mediante rotaciones alrededor de enlaces simples.
+                </div>
+            </div>
+
+            <div id="node-enantiomeros" class="node" tabindex="0" role="button">
+                <h2>ENANTIÓMEROS</h2>
+                <div class="detail-content">
+                    Parejas de compuestos que son imágenes especulares no superponibles entre sí (como las manos).
+                </div>
+            </div>
+
+            <div id="node-diastereomeros" class="node" tabindex="0" role="button">
+                <h2>DIASTEREÓMEROS</h2>
+                <div class="detail-content">
+                    Estereoisómeros que no son imágenes especulares entre sí. Tienen diferentes propiedades físicas.
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const viewport = document.getElementById('viewport');
+            const canvas = document.getElementById('map-canvas');
+            const nodes = document.querySelectorAll('.node');
+
+            // Estado de la transformación
+            let state = {
+                scale: 0.65, // Zoom inicial alejado para ver estructura
+                panning: false,
+                pointX: 0,
+                pointY: 0,
+                startX: 0,
+                startY: 0,
+                cssX: -500, // Ajuste inicial para centrar visualmente el diagrama
+                cssY: -300
+            };
+
+            // Configuración
+            const MIN_SCALE = 0.3;
+            const MAX_SCALE = 3.5;
+            const ZOOM_SPEED = 0.1;
+
+            // Función para aplicar transformación CSS
+            const updateTransform = () => {
+                canvas.style.transform = `translate(${state.cssX}px, ${state.cssY}px) scale(${state.scale})`;
+            };
+
+            // Inicializar posición centrada
+            const centerInitial = () => {
+                const vw = window.innerWidth;
+                const vh = window.innerHeight;
+                // Coordenadas aproximadas del centro del diagrama (nodo root + un poco a la derecha)
+                const targetX = 850; 
+                const targetY = 850;
+                
+                state.cssX = (vw / 2) - (targetX * state.scale);
+                state.cssY = (vh / 2) - (targetY * state.scale);
+                updateTransform();
+            };
+
+            // --- Lógica de Zoom / Focus en Nodos ---
+
+            const zoomToElement = (element) => {
+                // Remover clase activa de otros
+                nodes.forEach(n => {
+                    n.classList.remove('active');
+                    n.setAttribute('aria-expanded', 'false');
+                });
+                
+                // Activar actual
+                element.classList.add('active');
+                element.setAttribute('aria-expanded', 'true');
+
+                // Calcular geometría
+                const rect = element.getBoundingClientRect();
+                const containerRect = canvas.getBoundingClientRect(); // Rect actual transformado
+                
+                // Posición del elemento relativa al canvas sin transformar (coordenadas internas CSS)
+                const style = window.getComputedStyle(element);
+                const elemLeft = parseFloat(style.left);
+                const elemTop = parseFloat(style.top);
+                const elemWidth = element.offsetWidth;
+                const elemHeight = element.offsetHeight;
+
+                // Centro del elemento
+                const targetCenterX = elemLeft + (elemWidth / 2);
+                const targetCenterY = elemTop + (elemHeight / 2);
+
+                // Nueva escala (Zoom in para leer)
+                const targetScale = 1.3; 
+
+                // Calcular nuevo translate para centrar en viewport
+                const viewportW = viewport.offsetWidth;
+                const viewportH = viewport.offsetHeight;
+
+                const newCssX = (viewportW / 2) - (targetCenterX * targetScale);
+                const newCssY = (viewportH / 2) - (targetCenterY * targetScale);
+
+                // Animación suave manual
+                animateTransform(newCssX, newCssY, targetScale);
+            };
+
+            let animationFrame;
+            const animateTransform = (targetX, targetY, targetScale) => {
+                if (animationFrame) cancelAnimationFrame(animationFrame);
+
+                const startX = state.cssX;
+                const startY = state.cssY;
+                const startScale = state.scale;
+                const startTime = performance.now();
+                const duration = 800; // ms
+
+                const ease = (t) => {
+                    return t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // Ease in-out quad
+                };
+
+                const step = (now) => {
+                    const elapsed = now - startTime;
+                    let progress = Math.min(elapsed / duration, 1);
+                    progress = ease(progress);
+
+                    state.cssX = startX + (targetX - startX) * progress;
+                    state.cssY = startY + (targetY - startY) * progress;
+                    state.scale = startScale + (targetScale - startScale) * progress;
+
+                    updateTransform();
+
+                    if (progress < 1) {
+                        animationFrame = requestAnimationFrame(step);
+                    }
+                };
+                animationFrame = requestAnimationFrame(step);
+            };
+
+            // Listeners para clicks en nodos
+            nodes.forEach(node => {
+                node.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Evitar que el drag del fondo cancele
+                    zoomToElement(node);
+                });
+                
+                // Accesibilidad teclado
+                node.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        zoomToElement(node);
+                    }
+                });
+            });
+
+            // --- Lógica de Panning (Arrastrar) ---
+
+            viewport.addEventListener('mousedown', (e) => {
+                // Si click en nodo, ignorar para permitir click event del nodo
+                if (e.target.closest('.node')) return;
+
+                state.panning = true;
+                state.startX = e.clientX - state.cssX;
+                state.startY = e.clientY - state.cssY;
+                viewport.style.cursor = 'grabbing';
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!state.panning) return;
+                e.preventDefault();
+                state.cssX = e.clientX - state.startX;
+                state.cssY = e.clientY - state.startY;
+                updateTransform();
+            });
+
+            window.addEventListener('mouseup', () => {
+                state.panning = false;
+                viewport.style.cursor = 'grab';
+            });
+
+            // --- Lógica de Zoom (Rueda) ---
+
+            viewport.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                
+                const xs = (e.clientX - state.cssX) / state.scale;
+                const ys = (e.clientY - state.cssY) / state.scale;
+
+                const delta = -e.deltaY;
+                const factor = delta > 0 ? 1.1 : 0.9;
+                
+                let newScale = state.scale * factor;
+                newScale = Math.min(Math.max(newScale, MIN_SCALE), MAX_SCALE);
+
+                state.cssX = e.clientX - xs * newScale;
+                state.cssY = e.clientY - ys * newScale;
+                state.scale = newScale;
+
+                updateTransform();
+            });
+
+            // --- Lógica Táctil (Touch) ---
+            
+            let initialDist = 0;
+            let initialScale = 0;
+            let isPinching = false;
+
+            viewport.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    // Single touch pan
+                    if (e.target.closest('.node')) return; // Permitir tap en nodo
+                    state.panning = true;
+                    state.startX = e.touches[0].clientX - state.cssX;
+                    state.startY = e.touches[0].clientY - state.cssY;
+                } else if (e.touches.length === 2) {
+                    // Pinch Zoom
+                    isPinching = true;
+                    state.panning = false; // Desactivar pan
+                    initialDist = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    initialScale = state.scale;
+                }
+            }, {passive: false});
+
+            viewport.addEventListener('touchmove', (e) => {
+                e.preventDefault(); // Prevenir scroll nativo
+                
+                if (state.panning && e.touches.length === 1) {
+                    state.cssX = e.touches[0].clientX - state.startX;
+                    state.cssY = e.touches[0].clientY - state.startY;
+                    updateTransform();
+                } else if (isPinching && e.touches.length === 2) {
+                    const dist = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    
+                    // Calcular centro del pinch para hacer zoom hacia ese punto
+                    const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                    const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                    
+                    const xs = (centerX - state.cssX) / state.scale;
+                    const ys = (centerY - state.cssY) / state.scale;
+
+                    let newScale = initialScale * (dist / initialDist);
+                    newScale = Math.min(Math.max(newScale, MIN_SCALE), MAX_SCALE);
+
+                    state.cssX = centerX - xs * newScale;
+                    state.cssY = centerY - ys * newScale;
+                    state.scale = newScale;
+                    
+                    updateTransform();
+                }
+            }, {passive: false});
+
+            viewport.addEventListener('touchend', () => {
+                state.panning = false;
+                isPinching = false;
+            });
+
+            // Inicialización
+            centerInitial();
+        });
+    </script>
+</body>
+</html>
